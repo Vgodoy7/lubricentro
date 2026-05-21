@@ -1,0 +1,755 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no"/>
+<meta name="apple-mobile-web-app-capable" content="yes"/>
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent"/>
+<meta name="apple-mobile-web-app-title" content="LubriVíctor"/>
+<meta name="theme-color" content="#1e293b"/>
+<title>Lubricentro Víctor</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent;}
+body{background:#0f172a;color:#f1f5f9;font-family:'Segoe UI',system-ui,sans-serif;min-height:100vh;overscroll-behavior:none;}
+input,select,textarea,button{font-family:inherit;}
+::-webkit-scrollbar{display:none;}
+@keyframes spin{to{transform:rotate(360deg)}}
+.spin{display:inline-block;animation:spin 1s linear infinite;}
+@keyframes fadeIn{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}
+.fade{animation:fadeIn 0.25s ease}
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script>
+const API_URL = "https://script.google.com/macros/s/AKfycbwWgTBYS-tLW8oIj5rGzSGJzC1T8soslxiSOTwCL0ZAJ1CK5mVr2VQIkt2FxxqRn6Pu5A/exec";
+
+const NEGOCIO = {
+  nombre: "LUBRICENTRO VÍCTOR",
+  whatsapp: "1167668739",
+  direccion: "DARDO ROCHA 589, TIGRE",
+  horarios: [
+    {titulo:"CAMBIO DE ACEITE Y FILTROS", detalle:"LUN–VIE 8 A 15 HS · SÁB 8 A 12 HS"},
+    {titulo:"ATENCIÓN AL PÚBLICO", detalle:"LUN–VIE 8 A 17 HS · SÁB 8 A 12 HS"}
+  ]
+};
+
+const MARCAS_AUTO = ["CHEVROLET","FIAT","FORD","RENAULT","TOYOTA","VOLKSWAGEN","PEUGEOT","HONDA","NISSAN","JEEP","OTRA"];
+const MODELOS_AUTO = {
+  CHEVROLET:["CORSA","CRUZE","ONIX","TRACKER","S10","CAPTIVA","AGILE","MONTANA","SPIN","OTRO"],
+  FIAT:["UNO","PALIO","SIENA","STRADA","PULSE","CRONOS","MOBI","TORO","500","OTRO"],
+  FORD:["KA","FIESTA","FOCUS","ECO SPORT","RANGER","TERRITORY","BRONCO","MONDEO","KUGA","OTRO"],
+  RENAULT:["CLIO","SANDERO","LOGAN","DUSTER","KANGOO","KOLEOS","CAPTUR","STEPWAY","FLUENCE","OTRO"],
+  TOYOTA:["COROLLA","HILUX","RAV4","YARIS","CAMRY","FORTUNER","SW4","LAND CRUISER","PRADO","OTRO"],
+  VOLKSWAGEN:["GOL","POLO","VENTO","TIGUAN","AMAROK","SURAN","SAVEIRO","T-CROSS","TOUAREG","OTRO"],
+  PEUGEOT:["206","208","308","408","2008","3008","5008","PARTNER","EXPERT","OTRO"],
+  HONDA:["CIVIC","FIT","HR-V","CR-V","CITY","ACCORD","JAZZ","WR-V","ODYSSEY","OTRO"],
+  NISSAN:["FRONTIER","KICKS","MARCH","SENTRA","VERSA","X-TRAIL","TIIDA","PATHFINDER","MURANO","OTRO"],
+  JEEP:["RENEGADE","COMPASS","WRANGLER","GRAND CHEROKEE","GLADIATOR","CHEROKEE","OTRO"],
+  OTRA:["OTRO"]
+};
+const MARCAS_ACEITE = ["MOBIL","CASTROL","SHELL","YPF","TOTAL","VALVOLINE","MOTUL","PENNZOIL","QUAKER STATE","ELF","GULF","OTRO"];
+const FILTROS = ["ACEITE","AIRE","HABITÁCULO / POLEN","COMBUSTIBLE","HIDRÁULICO"];
+const FLUIDOS = ["REFRIGERANTE","FRENOS","DIRECCIÓN HIDRÁULICA","CAJA DE CAMBIOS","DIFERENCIAL","LIMPIAPARABRISAS"];
+
+const up = v => (v||"").toUpperCase();
+const cap = v => v ? v.charAt(0).toUpperCase()+v.slice(1).toLowerCase() : "";
+const fmt = d => { if(!d)return""; const[y,m,day]=d.split("-"); return`${day}/${m}/${y}`; };
+const fmtKm = v => parseInt(v||0).toLocaleString("es-AR");
+const fmtPeso = v => v ? `$${parseInt(v).toLocaleString("es-AR")}` : "—";
+
+const emptyForm = () => ({
+  cliente:"", telefono:"", patente:"", marcaAuto:"", modeloAuto:"", anio:"",
+  fecha: new Date().toISOString().split("T")[0],
+  kmActuales:"", kmProxService:"", kilometrajeService:"10000",
+  marcaAceite:"", nombreAceite:"", usaAditivo:false, tipoAditivo:"",
+  filtros:[], fluidos:[], observaciones:"", proximaFecha:"", costo:""
+});
+
+// ── API helpers ───────────────────────────────────────────────────
+async function apiGuardar(servicio) {
+  const res = await fetch(API_URL, {
+    method: "POST",
+    body: JSON.stringify(servicio)
+  });
+  return res.json();
+}
+
+async function apiCargar() {
+  const res = await fetch(API_URL);
+  const data = await res.json();
+  if (!data.ok || !data.rows || data.rows.length < 2) return [];
+  const [headers, ...rows] = data.rows;
+  return rows.map(row => {
+    const obj = {};
+    headers.forEach((h, i) => obj[h] = row[i]);
+    return {
+      id: obj["ID"],
+      fecha: obj["Fecha"],
+      cliente: obj["Cliente"],
+      telefono: obj["Teléfono"],
+      patente: obj["Patente"],
+      marcaAuto: obj["Marca"],
+      modeloAuto: obj["Modelo"],
+      anio: obj["Año"],
+      kmActuales: obj["KM Actuales"],
+      kmProxService: obj["KM Próximo"],
+      proximaFecha: obj["Fecha Próximo Service"],
+      kilometrajeService: obj["Intervalo KM"],
+      marcaAceite: obj["Aceite Marca"],
+      nombreAceite: obj["Aceite Tipo"],
+      usaAditivo: obj["Usó Aditivo"] === "SÍ",
+      tipoAditivo: obj["Tipo Aditivo"],
+      filtros: obj["Filtros"] ? obj["Filtros"].split(", ").filter(Boolean) : [],
+      fluidos: obj["Fluidos"] ? obj["Fluidos"].split(", ").filter(Boolean) : [],
+      observaciones: obj["Observaciones"],
+      costo: obj["Costo"],
+    };
+  }).filter(s => s.cliente || s.patente);
+}
+
+// ── Texto WhatsApp ────────────────────────────────────────────────
+function buildTextoWA(s) {
+  const autoStr = [s.marcaAuto, s.modeloAuto, s.anio].filter(Boolean).join(" ");
+  const filtrosStr = s.filtros?.map(f => cap(f)).join(", ") || "";
+  const fluidosStr = s.fluidos?.map(f => cap(f)).join(", ") || "";
+  const aceiteStr = s.marcaAceite ? `${cap(s.marcaAceite)}${s.nombreAceite ? " - "+s.nombreAceite : ""}` : "";
+  return [
+    `🔧 *COMPROBANTE DE SERVICE*`,
+    `📍 ${NEGOCIO.nombre} · Dardo Rocha 589, Tigre`,``,
+    `🚗 *VEHÍCULO:* ${up(s.patente)}${autoStr ? " – "+autoStr : ""}`,
+    `👤 *CLIENTE:* ${cap(s.cliente)}`,
+    `📅 *FECHA:* ${fmt(s.fecha)}`,
+    `🛣️ *KM ACTUALES:* ${fmtKm(s.kmActuales)} km`,
+    `🎯 *PRÓXIMO SERVICE:* ${fmtKm(s.kmProxService)} km`,
+    s.proximaFecha ? `📆 *FECHA SUGERIDA:* ${fmt(s.proximaFecha)}` : "",
+    aceiteStr ? `🛢️ *ACEITE:* ${aceiteStr}` : "",
+    s.usaAditivo && s.tipoAditivo ? `⚗️ *ADITIVO:* ${cap(s.tipoAditivo)}` : "",
+    filtrosStr ? `🔩 *FILTROS:* ${filtrosStr}` : "",
+    fluidosStr ? `💧 *FLUIDOS:* ${fluidosStr}` : "",
+    s.observaciones ? `📝 *OBS:* ${cap(s.observaciones)}` : "",
+    s.costo ? `💰 *COSTO:* ${fmtPeso(s.costo)}` : "",
+    ``,`━━━━━━━━━━━━━━━━━━━━━━`,``,
+    `✅ *SERVICE SIN TURNO PREVIO*`,
+    `💬 wa.me/54${NEGOCIO.whatsapp}`,
+    `¡Gracias ${cap(s.cliente)}! 🙌`
+  ].filter(l => l !== "").join("\n");
+}
+
+// ── Estilos ───────────────────────────────────────────────────────
+const C = {
+  app: "min-height:100vh;background:#0f172a;color:#f1f5f9;font-family:'Segoe UI',system-ui,sans-serif;",
+  hdr: "background:#1e293b;border-bottom:2px solid #f59e0b;padding:14px 16px 0;position:sticky;top:0;z-index:100;",
+  hdrI: "max-width:800px;margin:0 auto;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;padding-bottom:12px;",
+  logo: "font-size:18px;font-weight:900;color:#f59e0b;",
+  sub: "font-size:11px;color:#64748b;margin-top:2px;",
+  main: "max-width:800px;margin:0 auto;padding:20px 16px;",
+  sec: "background:#1e293b;border-radius:13px;padding:16px;margin-bottom:14px;",
+  secT: "font-size:13px;font-weight:700;color:#f59e0b;margin-bottom:14px;padding-bottom:10px;border-bottom:1px solid #334155;",
+  lbl: "display:block;font-size:10px;color:#64748b;font-weight:700;margin-bottom:5px;text-transform:uppercase;letter-spacing:0.5px;",
+  inp: "width:100%;background:#0f172a;border:1px solid #334155;border-radius:8px;padding:11px 13px;color:#f1f5f9;font-size:14px;outline:none;box-sizing:border-box;",
+  sel: "width:100%;background:#0f172a;border:1px solid #334155;border-radius:8px;padding:11px 13px;color:#f1f5f9;font-size:14px;outline:none;",
+  card: "background:#1e293b;border:1px solid #334155;border-radius:13px;padding:16px;cursor:pointer;display:flex;flex-direction:column;gap:7px;",
+  btnP: "background:#f59e0b;color:#0f172a;border:none;border-radius:10px;padding:12px 18px;font-weight:800;font-size:14px;cursor:pointer;",
+  btnS: "background:#1e293b;color:#94a3b8;border:1px solid #334155;border-radius:10px;padding:11px 14px;font-weight:600;font-size:12px;cursor:pointer;",
+  btnG: "background:#15803d;color:#fff;border:none;border-radius:10px;padding:11px 16px;font-weight:700;font-size:13px;cursor:pointer;",
+  btnWA: "background:#15803d;color:#fff;border:none;border-radius:10px;padding:13px 22px;font-weight:800;font-size:14px;cursor:pointer;width:100%;",
+  search: "width:100%;background:#1e293b;border:1px solid #334155;border-radius:10px;padding:12px 16px;color:#f1f5f9;font-size:14px;outline:none;box-sizing:border-box;text-transform:uppercase;margin-bottom:16px;",
+  grid: "display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:12px;",
+  stats: "display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:16px;",
+  sc: "background:#1e293b;border-radius:12px;padding:14px 16px;text-align:center;",
+};
+
+// ── State global simple ───────────────────────────────────────────
+let state = {
+  view: "lista",
+  servicios: [],
+  form: emptyForm(),
+  selected: null,
+  search: "",
+  modal: false,
+  sync: "loading", // loading | saving | ok | error
+};
+
+function render() {
+  const root = document.getElementById("root");
+  root.innerHTML = "";
+  const el = buildView();
+  root.appendChild(el);
+}
+
+function setState(patch, rerender=true) {
+  Object.assign(state, typeof patch === "function" ? patch(state) : patch);
+  if(rerender) render();
+}
+
+// ── Cargar desde Sheets ───────────────────────────────────────────
+async function cargarServicios() {
+  setState({sync:"loading"});
+  try {
+    const data = await apiCargar();
+    setState({servicios: data, sync:"ok"});
+  } catch(e) {
+    setState({sync:"error"});
+  }
+}
+
+// ── Guardar en Sheets ─────────────────────────────────────────────
+async function guardarServicio(form) {
+  setState({sync:"saving"});
+  try {
+    const servicio = {...form, id: Date.now()};
+    const res = await apiGuardar(servicio);
+    if(res.ok) {
+      setState(s => ({
+        servicios: [servicio, ...s.servicios],
+        form: emptyForm(),
+        view: "lista",
+        sync: "ok"
+      }));
+    } else {
+      setState({sync:"error"});
+      alert("Error al guardar. Verificá la conexión.");
+    }
+  } catch(e) {
+    setState({sync:"error"});
+    alert("Error de conexión con Google Sheets.");
+  }
+}
+
+// ── Badge sync ────────────────────────────────────────────────────
+function buildSyncBadge() {
+  const el = document.createElement("span");
+  const map = {
+    loading: {txt:"⟳ CARGANDO...", bg:"#1e3a8a44", color:"#93c5fd", border:"#2563eb44"},
+    saving:  {txt:"⟳ GUARDANDO...", bg:"#1e3a8a44", color:"#93c5fd", border:"#2563eb44"},
+    ok:      {txt:"☁️ GUARDADO EN SHEETS", bg:"#14532d44", color:"#4ade80", border:"#16a34a44"},
+    error:   {txt:"⚠️ ERROR AL GUARDAR", bg:"#7f1d1d44", color:"#f87171", border:"#dc262644"},
+  };
+  const s = map[state.sync] || map.ok;
+  el.style.cssText = `display:inline-flex;align-items:center;gap:5px;font-size:10px;font-weight:700;padding:3px 8px;border-radius:20px;letter-spacing:0.5px;background:${s.bg};color:${s.color};border:1px solid ${s.border};`;
+  if(state.sync==="loading"||state.sync==="saving") el.classList.add("spin");
+  el.textContent = s.txt;
+  return el;
+}
+
+// ── Header ────────────────────────────────────────────────────────
+function buildHeader(titulo, backBtn) {
+  const hdr = document.createElement("header");
+  hdr.style.cssText = C.hdr;
+  const inner = document.createElement("div");
+  inner.style.cssText = C.hdrI;
+
+  const left = document.createElement("div");
+  const logo = document.createElement("div");
+  logo.style.cssText = C.logo;
+  logo.textContent = `⚙️ ${NEGOCIO.nombre}`;
+  const sub = document.createElement("div");
+  sub.style.cssText = C.sub + "display:flex;align-items:center;gap:8px;margin-top:4px;";
+  sub.innerHTML = `<span>📍 ${NEGOCIO.direccion}</span>`;
+  sub.appendChild(buildSyncBadge());
+  left.appendChild(logo);
+  left.appendChild(sub);
+
+  inner.appendChild(left);
+
+  if(backBtn) {
+    const btn = document.createElement("button");
+    btn.style.cssText = C.btnS;
+    btn.textContent = "← VOLVER";
+    btn.onclick = () => setState({view:"lista", selected:null});
+    inner.appendChild(btn);
+  } else {
+    const btn = document.createElement("button");
+    btn.style.cssText = C.btnP;
+    btn.textContent = "+ NUEVO SERVICE";
+    btn.onclick = () => setState({view:"nuevo", form:emptyForm()});
+    inner.appendChild(btn);
+  }
+
+  hdr.appendChild(inner);
+
+  // Strip horarios
+  const strip = document.createElement("div");
+  strip.style.cssText = "max-width:800px;margin:0 auto;display:flex;flex-wrap:wrap;gap:10px;padding-bottom:10px;border-top:1px solid #334155;padding-top:8px;";
+  strip.innerHTML = `<span style="color:#4ade80;font-weight:700;font-size:11px;">✅ SIN TURNO</span>` +
+    NEGOCIO.horarios.map(h => `<span style="color:#94a3b8;font-size:11px;"><b style="color:#cbd5e1;">${h.titulo}:</b> ${h.detalle}</span>`).join("");
+  hdr.appendChild(strip);
+
+  return hdr;
+}
+
+// ── Vista Lista ───────────────────────────────────────────────────
+function buildLista() {
+  const wrap = document.createElement("div");
+  wrap.style.cssText = C.app;
+  wrap.appendChild(buildHeader());
+
+  const main = document.createElement("main");
+  main.style.cssText = C.main;
+  main.classList.add("fade");
+
+  // Stats
+  const stats = document.createElement("div");
+  stats.style.cssText = C.stats;
+  const svcs = state.servicios;
+  const mesActual = new Date().toISOString().slice(0,7);
+  [
+    {icon:"🔧", label:"TOTAL", val:svcs.length, c:"#f59e0b"},
+    {icon:"🚗", label:"ESTE MES", val:svcs.filter(s=>s.fecha?.startsWith(mesActual)).length, c:"#10b981"},
+    {icon:"📋", label:"ÚLT. 7 DÍAS", val:svcs.filter(s=>(new Date()-new Date(s.fecha))/864e5<=7).length, c:"#3b82f6"},
+  ].forEach(({icon,label,val,c}) => {
+    const sc = document.createElement("div");
+    sc.style.cssText = C.sc + `border-top:4px solid ${c};`;
+    sc.innerHTML = `<div style="font-size:24px;">${icon}</div><div style="font-size:26px;font-weight:800;color:${c};">${val}</div><div style="font-size:11px;color:#94a3b8;font-weight:600;">${label}</div>`;
+    stats.appendChild(sc);
+  });
+  main.appendChild(stats);
+
+  if(state.sync === "loading") {
+    const loading = document.createElement("div");
+    loading.style.cssText = "text-align:center;padding:60px 20px;color:#64748b;";
+    loading.innerHTML = `<div style="font-size:40px;margin-bottom:12px;">☁️</div><div style="font-weight:700;font-size:14px;">CARGANDO DESDE GOOGLE SHEETS...</div><div style="font-size:12px;margin-top:6px;">Recuperando historial de servicios</div>`;
+    main.appendChild(loading);
+    wrap.appendChild(main);
+    return wrap;
+  }
+
+  // Buscador
+  const search = document.createElement("input");
+  search.style.cssText = C.search;
+  search.placeholder = "🔍  BUSCAR POR CLIENTE, PATENTE, MARCA...";
+  search.value = state.search;
+  search.oninput = e => { state.search = e.target.value; render(); };
+  main.appendChild(search);
+
+  const q = state.search.toLowerCase();
+  const filtered = svcs.filter(s =>
+    s.cliente?.toLowerCase().includes(q) ||
+    s.patente?.toLowerCase().includes(q) ||
+    s.marcaAuto?.toLowerCase().includes(q) ||
+    s.modeloAuto?.toLowerCase().includes(q)
+  );
+
+  if(filtered.length === 0) {
+    const empty = document.createElement("div");
+    empty.style.cssText = "text-align:center;padding:60px 20px;";
+    empty.innerHTML = `<div style="font-size:52px;">🛢️</div><div style="font-size:16px;font-weight:700;color:#94a3b8;margin-top:12px;">${state.search?"SIN RESULTADOS":"NO HAY SERVICIOS AÚN"}</div><div style="color:#64748b;margin-top:6px;font-size:13px;">Tocá "+ NUEVO SERVICE" para empezar</div>`;
+    main.appendChild(empty);
+  } else {
+    const grid = document.createElement("div");
+    grid.style.cssText = C.grid;
+    filtered.forEach(s => {
+      const auto = [s.marcaAuto, s.modeloAuto, s.anio].filter(Boolean).join(" ");
+      const aceite = [s.marcaAceite, s.nombreAceite].filter(Boolean).join(" – ");
+      const card = document.createElement("div");
+      card.style.cssText = C.card;
+      card.classList.add("fade");
+      card.innerHTML = `
+        <div style="display:flex;justify-content:space-between;align-items:flex-start;">
+          <div>
+            <div style="font-size:18px;font-weight:900;color:#f59e0b;letter-spacing:2px;font-family:monospace;">${up(s.patente)}</div>
+            <div style="font-size:12px;color:#94a3b8;margin-top:2px;">${auto}</div>
+          </div>
+          <div style="font-size:11px;color:#64748b;background:#0f172a;padding:3px 8px;border-radius:6px;">${fmt(s.fecha)}</div>
+        </div>
+        <div style="font-weight:700;color:#e2e8f0;font-size:13px;">👤 ${up(s.cliente)}</div>
+        ${s.telefono ? `<div style="color:#64748b;font-size:12px;">📞 ${s.telefono}</div>` : ""}
+        <div style="display:flex;justify-content:space-between;flex-wrap:wrap;gap:6px;font-size:12px;color:#94a3b8;">
+          <span>🛣️ <b>${fmtKm(s.kmActuales)}</b> KM</span>
+          ${s.kmProxService ? `<span style="background:#1d4ed8;color:#bfdbfe;padding:2px 8px;border-radius:20px;font-size:11px;font-weight:700;">PRÓX: ${fmtKm(s.kmProxService)} KM</span>` : ""}
+        </div>
+        ${aceite ? `<div style="font-size:11px;color:#94a3b8;">🛢️ ${aceite}</div>` : ""}
+        ${s.filtros?.length ? `<div style="display:flex;flex-wrap:wrap;gap:4px;">${s.filtros.map(f=>`<span style="background:#422006;color:#fbbf24;padding:2px 7px;border-radius:20px;font-size:10px;font-weight:700;">🔩 ${f}</span>`).join("")}</div>` : ""}
+        ${s.costo ? `<div style="font-size:13px;font-weight:800;color:#4ade80;">💰 ${fmtPeso(s.costo)}</div>` : ""}
+      `;
+      card.onclick = () => setState({view:"detalle", selected:s});
+      grid.appendChild(card);
+    });
+    main.appendChild(grid);
+  }
+
+  // Botón recargar
+  const reloadBtn = document.createElement("button");
+  reloadBtn.style.cssText = C.btnS + "width:100%;margin-top:16px;";
+  reloadBtn.textContent = "🔄 RECARGAR DESDE GOOGLE SHEETS";
+  reloadBtn.onclick = () => cargarServicios();
+  main.appendChild(reloadBtn);
+
+  wrap.appendChild(main);
+  return wrap;
+}
+
+// ── Vista Detalle ─────────────────────────────────────────────────
+function buildDetalle() {
+  const s = state.selected;
+  const wrap = document.createElement("div");
+  wrap.style.cssText = C.app;
+  wrap.appendChild(buildHeader("DETALLE", true));
+
+  const main = document.createElement("main");
+  main.style.cssText = C.main + "max-width:560px;";
+  main.classList.add("fade");
+
+  const auto = [s.marcaAuto, s.modeloAuto, s.anio].filter(Boolean).join(" ");
+  const aceite = [s.marcaAceite, s.nombreAceite].filter(Boolean).join(" – ");
+
+  // Tarjeta
+  const tarjeta = document.createElement("div");
+  tarjeta.style.cssText = "background:#fff;border-radius:14px;overflow:hidden;box-shadow:0 6px 30px rgba(0,0,0,0.22);border:1px solid #e2e8f0;";
+  tarjeta.innerHTML = `
+    <div style="background:linear-gradient(135deg,#92400e,#f59e0b);padding:16px 20px;">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;">
+        <div>
+          <div style="font-size:10px;color:rgba(255,255,255,0.65);letter-spacing:2px;font-weight:700;">COMPROBANTE DE SERVICE</div>
+          <div style="font-size:17px;font-weight:900;color:#fff;margin-top:4px;">⚙️ ${NEGOCIO.nombre}</div>
+          <div style="font-size:11px;color:rgba(255,255,255,0.8);margin-top:2px;">📍 ${NEGOCIO.direccion}</div>
+        </div>
+        <div style="text-align:right;">
+          <div style="font-size:9px;color:rgba(255,255,255,0.6);">FECHA DEL SERVICE</div>
+          <div style="font-size:22px;font-weight:900;color:#fff;">${fmt(s.fecha)}</div>
+        </div>
+      </div>
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;">
+      <div style="background:#1e293b;padding:12px 16px;">
+        <div style="font-size:9px;color:#64748b;letter-spacing:2px;font-weight:700;margin-bottom:4px;">VEHÍCULO</div>
+        <div style="font-size:20px;font-weight:900;color:#f59e0b;letter-spacing:3px;font-family:monospace;">${up(s.patente)||"—"}</div>
+        <div style="font-size:11px;color:#94a3b8;margin-top:2px;">${auto||"—"}</div>
+      </div>
+      <div style="background:#0f172a;padding:12px 16px;">
+        <div style="font-size:9px;color:#475569;letter-spacing:2px;font-weight:700;margin-bottom:4px;">CLIENTE</div>
+        <div style="font-size:14px;font-weight:800;color:#f1f5f9;">${up(s.cliente)||"—"}</div>
+        ${s.telefono ? `<div style="font-size:11px;color:#64748b;margin-top:3px;">📞 ${s.telefono}</div>` : ""}
+      </div>
+    </div>
+    <div style="height:3px;background:#f59e0b;"></div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;">
+      <div style="background:#f8fafc;padding:10px 16px;border-right:1px solid #e5e7eb;">
+        <div style="font-size:9px;color:#9ca3af;letter-spacing:1.5px;font-weight:700;">KM ACTUALES</div>
+        <div style="font-size:22px;font-weight:900;color:#1e293b;margin-top:2px;">${fmtKm(s.kmActuales)}<span style="font-size:11px;color:#94a3b8;"> km</span></div>
+      </div>
+      <div style="background:#fffbeb;padding:10px 16px;">
+        <div style="font-size:9px;color:#92400e;letter-spacing:1.5px;font-weight:700;">PRÓXIMO SERVICE</div>
+        <div style="font-size:22px;font-weight:900;color:#d97706;margin-top:2px;">${fmtKm(s.kmProxService)}<span style="font-size:11px;color:#b45309;"> km</span></div>
+        ${s.proximaFecha ? `<div style="font-size:10px;color:#b45309;margin-top:1px;">📅 ${fmt(s.proximaFecha)}</div>` : ""}
+      </div>
+    </div>
+    <div style="padding:12px 16px;border-top:1px solid #f1f5f9;">
+      ${aceite ? `<div style="display:flex;justify-content:space-between;padding:5px 0;border-bottom:1px solid #f1f5f9;"><span style="font-size:10px;color:#9ca3af;font-weight:700;">🛢️ ACEITE</span><span style="font-size:12px;font-weight:700;color:#1e293b;">${aceite}</span></div>` : ""}
+      ${s.usaAditivo && s.tipoAditivo ? `<div style="display:flex;justify-content:space-between;padding:5px 0;border-bottom:1px solid #f1f5f9;"><span style="font-size:10px;color:#9ca3af;font-weight:700;">⚗️ ADITIVO</span><span style="font-size:12px;font-weight:700;color:#7c3aed;">${up(s.tipoAditivo)}</span></div>` : ""}
+      ${s.costo ? `<div style="display:flex;justify-content:space-between;padding:5px 0;border-bottom:1px solid #f1f5f9;"><span style="font-size:10px;color:#9ca3af;font-weight:700;">💰 COSTO</span><span style="font-size:12px;font-weight:700;color:#15803d;">${fmtPeso(s.costo)}</span></div>` : ""}
+      ${s.filtros?.length ? `<div style="margin-top:8px;"><div style="font-size:9px;color:#9ca3af;font-weight:700;margin-bottom:5px;">🔩 FILTROS</div><div style="display:flex;flex-wrap:wrap;gap:4px;">${s.filtros.map(f=>`<span style="background:#fef3c7;color:#92400e;padding:3px 8px;border-radius:20px;font-size:10px;font-weight:700;">✔ ${f}</span>`).join("")}</div></div>` : ""}
+      ${s.fluidos?.length ? `<div style="margin-top:8px;"><div style="font-size:9px;color:#9ca3af;font-weight:700;margin-bottom:5px;">💧 FLUIDOS</div><div style="display:flex;flex-wrap:wrap;gap:4px;">${s.fluidos.map(f=>`<span style="background:#dbeafe;color:#1e3a8a;padding:3px 8px;border-radius:20px;font-size:10px;font-weight:700;">✔ ${f}</span>`).join("")}</div></div>` : ""}
+      ${s.observaciones ? `<div style="margin-top:8px;padding:8px 10px;background:#f9fafb;border-radius:8px;font-size:12px;color:#374151;"><span style="font-size:9px;color:#9ca3af;font-weight:700;">📝 OBSERVACIONES</span><br/>${up(s.observaciones)}</div>` : ""}
+    </div>
+    <div style="background:#1e293b;padding:12px 16px;display:flex;justify-content:space-between;align-items:center;">
+      <div>
+        <div style="font-size:11px;font-weight:700;color:#4ade80;">✅ SERVICE SIN TURNO PREVIO</div>
+        <div style="font-size:10px;color:#64748b;margin-top:2px;">wa.me/54${NEGOCIO.whatsapp}</div>
+      </div>
+      <div style="text-align:right;font-size:11px;font-weight:700;color:#f59e0b;">¡GRACIAS! 🙌</div>
+    </div>
+  `;
+  main.appendChild(tarjeta);
+
+  // Botón WhatsApp
+  const waBtn = document.createElement("button");
+  waBtn.style.cssText = C.btnWA + "margin-top:16px;";
+  waBtn.textContent = `💬 AVISAR A ${up(s.cliente?.split(" ")[0])||"CLIENTE"} POR WHATSAPP`;
+  waBtn.onclick = () => {
+    const texto = buildTextoWA(s);
+    const num = s.telefono ? s.telefono.replace(/\D/g,"") : NEGOCIO.whatsapp.replace(/\D/g,"");
+    window.open(`https://wa.me/54${num}?text=${encodeURIComponent(texto)}`, "_blank");
+  };
+  main.appendChild(waBtn);
+
+  wrap.appendChild(main);
+  return wrap;
+}
+
+// ── Vista Formulario ──────────────────────────────────────────────
+function buildFormulario() {
+  const wrap = document.createElement("div");
+  wrap.style.cssText = C.app;
+  wrap.appendChild(buildHeader("NUEVO", true));
+
+  const main = document.createElement("main");
+  main.style.cssText = C.main + "max-width:680px;";
+  main.classList.add("fade");
+
+  const form = state.form;
+  const modelos = MODELOS_AUTO[form.marcaAuto] || [];
+
+  function fld(label, type, key, placeholder, transform) {
+    const wrap = document.createElement("div");
+    wrap.style.cssText = "flex:1;min-width:140px;";
+    const lbl = document.createElement("label");
+    lbl.style.cssText = C.lbl;
+    lbl.textContent = label;
+    const inp = document.createElement("input");
+    inp.style.cssText = C.inp;
+    inp.type = type;
+    inp.placeholder = placeholder || "";
+    inp.value = form[key] || "";
+    inp.oninput = e => {
+      state.form[key] = transform ? transform(e.target.value) : e.target.value;
+    };
+    wrap.appendChild(lbl);
+    wrap.appendChild(inp);
+    return wrap;
+  }
+
+  function sel(label, key, options, onChange) {
+    const wrap = document.createElement("div");
+    wrap.style.cssText = "flex:1;";
+    const lbl = document.createElement("label");
+    lbl.style.cssText = C.lbl;
+    lbl.textContent = label;
+    const s = document.createElement("select");
+    s.style.cssText = C.sel;
+    const def = document.createElement("option");
+    def.value = ""; def.textContent = "SELECCIONAR...";
+    s.appendChild(def);
+    options.forEach(o => {
+      const opt = document.createElement("option");
+      opt.value = o; opt.textContent = o;
+      if(form[key] === o) opt.selected = true;
+      s.appendChild(opt);
+    });
+    s.onchange = e => {
+      state.form[key] = e.target.value;
+      if(onChange) onChange(e.target.value);
+      else render();
+    };
+    wrap.appendChild(lbl);
+    wrap.appendChild(s);
+    return wrap;
+  }
+
+  function sec(title, ...children) {
+    const div = document.createElement("div");
+    div.style.cssText = C.sec;
+    const t = document.createElement("div");
+    t.style.cssText = C.secT;
+    t.textContent = title;
+    div.appendChild(t);
+    children.forEach(c => c && div.appendChild(c));
+    return div;
+  }
+
+  function row(...children) {
+    const div = document.createElement("div");
+    div.style.cssText = "display:flex;gap:14px;flex-wrap:wrap;";
+    children.forEach(c => c && div.appendChild(c));
+    return div;
+  }
+
+  // Secciones
+  main.appendChild(sec("👤 DATOS DEL CLIENTE",
+    row(fld("CLIENTE *","text","cliente","JUAN GARCÍA", v=>v.toUpperCase()),
+        fld("TELÉFONO","tel","telefono","11 2345-6789"))
+  ));
+
+  const marcaEl = sel("MARCA","marcaAuto", MARCAS_AUTO, () => { state.form.modeloAuto=""; render(); });
+  const modeloEl = sel("MODELO","modeloAuto", modelos);
+  if(!form.marcaAuto) modeloEl.querySelector("select").disabled = true;
+
+  main.appendChild(sec("🚗 DATOS DEL VEHÍCULO",
+    row(fld("PATENTE *","text","patente","AB 123 CD", v=>v.toUpperCase()), marcaEl),
+    row(modeloEl, fld("AÑO","number","anio","2019"))
+  ));
+
+  // Intervalo select
+  const intervDiv = document.createElement("div");
+  intervDiv.style.cssText = "flex:1;";
+  const intervLbl = document.createElement("label");
+  intervLbl.style.cssText = C.lbl;
+  intervLbl.textContent = "INTERVALO";
+  const intervSel = document.createElement("select");
+  intervSel.style.cssText = C.sel;
+  ["5000","7500","10000","15000","20000"].forEach(k => {
+    const o = document.createElement("option");
+    o.value = k; o.textContent = parseInt(k).toLocaleString()+" KM";
+    if(form.kilometrajeService === k) o.selected = true;
+    intervSel.appendChild(o);
+  });
+  intervSel.onchange = e => {
+    state.form.kilometrajeService = e.target.value;
+    if(state.form.kmActuales) {
+      state.form.kmProxService = (parseInt(state.form.kmActuales)+parseInt(e.target.value)).toString();
+    }
+    render();
+  };
+  intervDiv.appendChild(intervLbl);
+  intervDiv.appendChild(intervSel);
+
+  main.appendChild(sec("📅 DATOS DEL SERVICE",
+    row(fld("FECHA *","date","fecha"), fld("KM ACTUALES *","number","kmActuales","85000", v=>{ state.form.kmProxService=(parseInt(v||0)+parseInt(state.form.kilometrajeService||10000)).toString(); return v; })),
+    row(intervDiv, fld("PRÓXIMO SERVICE (KM)","number","kmProxService")),
+    row(fld("PRÓXIMA FECHA SUGERIDA","date","proximaFecha"))
+  ));
+
+  // Aceite
+  const aceiteSection = document.createElement("div");
+  aceiteSection.style.cssText = C.sec;
+  const aceiteT = document.createElement("div");
+  aceiteT.style.cssText = C.secT;
+  aceiteT.textContent = "🛢️ ACEITE Y ADITIVO";
+  aceiteSection.appendChild(aceiteT);
+  aceiteSection.appendChild(row(sel("MARCA DE ACEITE","marcaAceite", MARCAS_ACEITE), fld("NOMBRE / TIPO","text","nombreAceite","EJ: HELIX ULTRA 5W-40", v=>v.toUpperCase())));
+
+  const chkWrap = document.createElement("label");
+  chkWrap.style.cssText = "display:flex;align-items:center;gap:10px;cursor:pointer;margin-top:8px;";
+  const chk = document.createElement("input");
+  chk.type = "checkbox";
+  chk.checked = form.usaAditivo;
+  chk.style.cssText = "accent-color:#f59e0b;width:18px;height:18px;";
+  chk.onchange = e => { state.form.usaAditivo = e.target.checked; state.form.tipoAditivo=""; render(); };
+  const chkLbl = document.createElement("span");
+  chkLbl.style.cssText = "color:#fbbf24;font-weight:700;font-size:13px;";
+  chkLbl.textContent = "⚗️ SE UTILIZÓ ADITIVO";
+  chkWrap.appendChild(chk);
+  chkWrap.appendChild(chkLbl);
+  aceiteSection.appendChild(chkWrap);
+  if(form.usaAditivo) aceiteSection.appendChild(fld("TIPO DE ADITIVO","text","tipoAditivo","EJ: BARDAHL ENGINE FLUSH", v=>v.toUpperCase()));
+  main.appendChild(aceiteSection);
+
+  // Filtros
+  const filtrosSec = document.createElement("div");
+  filtrosSec.style.cssText = C.sec;
+  const filtrosT = document.createElement("div");
+  filtrosT.style.cssText = C.secT;
+  filtrosT.textContent = "🔩 FILTROS CAMBIADOS";
+  filtrosSec.appendChild(filtrosT);
+  const filtrosGrid = document.createElement("div");
+  filtrosGrid.style.cssText = "display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:10px;";
+  FILTROS.forEach(f => {
+    const lbl = document.createElement("label");
+    lbl.style.cssText = "display:flex;align-items:center;gap:8px;cursor:pointer;color:#cbd5e1;font-size:13px;font-weight:600;";
+    const c = document.createElement("input");
+    c.type = "checkbox";
+    c.checked = form.filtros.includes(f);
+    c.style.cssText = "accent-color:#f59e0b;";
+    c.onchange = () => {
+      state.form.filtros = state.form.filtros.includes(f)
+        ? state.form.filtros.filter(x=>x!==f)
+        : [...state.form.filtros, f];
+    };
+    lbl.appendChild(c);
+    lbl.appendChild(document.createTextNode(f));
+    filtrosGrid.appendChild(lbl);
+  });
+  filtrosSec.appendChild(filtrosGrid);
+  main.appendChild(filtrosSec);
+
+  // Fluidos
+  const fluidosSec = document.createElement("div");
+  fluidosSec.style.cssText = C.sec;
+  const fluidosT = document.createElement("div");
+  fluidosT.style.cssText = C.secT;
+  fluidosT.textContent = "💧 FLUIDOS REVISADOS";
+  fluidosSec.appendChild(fluidosT);
+  const fluidosGrid = document.createElement("div");
+  fluidosGrid.style.cssText = "display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:10px;";
+  FLUIDOS.forEach(f => {
+    const lbl = document.createElement("label");
+    lbl.style.cssText = "display:flex;align-items:center;gap:8px;cursor:pointer;color:#cbd5e1;font-size:13px;font-weight:600;";
+    const c = document.createElement("input");
+    c.type = "checkbox";
+    c.checked = form.fluidos.includes(f);
+    c.style.cssText = "accent-color:#3b82f6;";
+    c.onchange = () => {
+      state.form.fluidos = state.form.fluidos.includes(f)
+        ? state.form.fluidos.filter(x=>x!==f)
+        : [...state.form.fluidos, f];
+    };
+    lbl.appendChild(c);
+    lbl.appendChild(document.createTextNode(f));
+    fluidosGrid.appendChild(lbl);
+  });
+  fluidosSec.appendChild(fluidosGrid);
+  main.appendChild(fluidosSec);
+
+  // Observaciones
+  const obsSec = document.createElement("div");
+  obsSec.style.cssText = C.sec;
+  const obsT = document.createElement("div");
+  obsT.style.cssText = C.secT;
+  obsT.textContent = "📝 OBSERVACIONES";
+  const obsTA = document.createElement("textarea");
+  obsTA.style.cssText = C.inp + "height:90px;resize:vertical;text-transform:uppercase;";
+  obsTA.placeholder = "OBSERVACIONES DEL VEHÍCULO...";
+  obsTA.value = form.observaciones || "";
+  obsTA.oninput = e => { state.form.observaciones = e.target.value.toUpperCase(); };
+  obsSec.appendChild(obsT);
+  obsSec.appendChild(obsTA);
+  main.appendChild(obsSec);
+
+  // Costo
+  const costoSec = document.createElement("div");
+  costoSec.style.cssText = C.sec;
+  const costoT = document.createElement("div");
+  costoT.style.cssText = C.secT;
+  costoT.textContent = "💰 COSTO DEL SERVICE";
+  const costoRow = document.createElement("div");
+  costoRow.style.cssText = "display:flex;align-items:center;gap:8px;";
+  const costoSign = document.createElement("span");
+  costoSign.style.cssText = "font-size:20px;font-weight:900;color:#4ade80;";
+  costoSign.textContent = "$";
+  const costoInp = document.createElement("input");
+  costoInp.style.cssText = C.inp + "font-size:20px;font-weight:800;color:#4ade80;";
+  costoInp.type = "number";
+  costoInp.placeholder = "0";
+  costoInp.value = form.costo || "";
+  costoInp.oninput = e => { state.form.costo = e.target.value; };
+  costoRow.appendChild(costoSign);
+  costoRow.appendChild(costoInp);
+  costoSec.appendChild(costoT);
+  costoSec.appendChild(costoRow);
+  main.appendChild(costoSec);
+
+  // Botones
+  const btnRow = document.createElement("div");
+  btnRow.style.cssText = "display:flex;gap:12px;margin-top:8px;padding-bottom:40px;";
+  const cancelBtn = document.createElement("button");
+  cancelBtn.style.cssText = C.btnS + "flex:1;";
+  cancelBtn.textContent = "CANCELAR";
+  cancelBtn.onclick = () => setState({view:"lista", form:emptyForm()});
+
+  const saveBtn = document.createElement("button");
+  saveBtn.style.cssText = C.btnP + "flex:2;";
+  saveBtn.textContent = state.sync==="saving" ? "⟳ GUARDANDO..." : "✅ GUARDAR SERVICE";
+  saveBtn.disabled = state.sync === "saving";
+  saveBtn.onclick = () => {
+    const f = state.form;
+    if(!f.cliente||!f.patente||!f.fecha||!f.kmActuales){
+      alert("COMPLETÁ: CLIENTE, PATENTE, FECHA Y KM ACTUALES.");
+      return;
+    }
+    guardarServicio(f);
+  };
+
+  btnRow.appendChild(cancelBtn);
+  btnRow.appendChild(saveBtn);
+  main.appendChild(btnRow);
+
+  wrap.appendChild(main);
+  return wrap;
+}
+
+// ── Router ────────────────────────────────────────────────────────
+function buildView() {
+  switch(state.view) {
+    case "nuevo":   return buildFormulario();
+    case "detalle": return buildDetalle();
+    default:        return buildLista();
+  }
+}
+
+// ── Arrancar ──────────────────────────────────────────────────────
+render();
+cargarServicios();
+</script>
+</body>
+</html>
