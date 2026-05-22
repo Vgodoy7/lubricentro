@@ -70,13 +70,20 @@ const emptyForm = () => ({
 async function apiGuardar(servicio) {
   const encoded = encodeURIComponent(JSON.stringify(servicio));
   const url = `${API_URL}?action=guardar&data=${encoded}`;
-  const res = await fetch(url);
-  return res.json();
+  await fetch(url, {method:"GET", mode:"no-cors"});
+  return {ok: true};
 }
 
 async function apiCargar() {
-  const res = await fetch(`${API_URL}?action=cargar`);
-  const data = await res.json();
+  const data = await new Promise((resolve, reject) => {
+    const cb = "cb_" + Date.now();
+    const script = document.createElement("script");
+    script.src = `${API_URL}?action=cargar&callback=${cb}`;
+    window[cb] = (d) => { delete window[cb]; script.remove(); resolve(d); };
+    script.onerror = () => reject(new Error("Error cargando datos"));
+    document.head.appendChild(script);
+    setTimeout(() => reject(new Error("Timeout")), 10000);
+  });
   if (!data.ok || !data.rows || data.rows.length < 2) return [];
   const [headers, ...rows] = data.rows;
   return rows.map(row => {
