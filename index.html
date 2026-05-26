@@ -22,7 +22,7 @@ input,select,textarea,button{font-family:inherit;}
 <body>
 <div id="root"></div>
 <script>
-const API_URL = "https://script.google.com/macros/s/AKfycbwWgTBYS-tLW8oIj5rGzSGJzC1T8soslxiSOTwCL0ZAJ1CK5mVr2VQIkt2FxxqRn6Pu5A/exec";
+const STORAGE_KEY = "lubrivicor_v1";
 
 const NEGOCIO = {
   nombre: "LUBRICENTRO VÍCTOR",
@@ -66,52 +66,39 @@ const emptyForm = () => ({
   filtros:[], fluidos:[], observaciones:"", proximaFecha:"", costo:""
 });
 
-// ── API helpers ───────────────────────────────────────────────────
-async function apiGuardar(servicio) {
-  const encoded = encodeURIComponent(JSON.stringify(servicio));
-  const url = `${API_URL}?action=guardar&data=${encoded}`;
-  await fetch(url, {method:"GET", mode:"no-cors"});
-  return {ok: true};
+// ── localStorage helpers ─────────────────────────────────────────
+function lsCargar() {
+  try {
+    const data = localStorage.getItem(STORAGE_KEY);
+    return data ? JSON.parse(data) : [];
+  } catch { return []; }
 }
 
-async function apiCargar() {
-  const data = await new Promise((resolve, reject) => {
-    const cb = "cb_" + Date.now();
-    const script = document.createElement("script");
-    script.src = `${API_URL}?action=cargar&callback=${cb}`;
-    window[cb] = (d) => { delete window[cb]; script.remove(); resolve(d); };
-    script.onerror = () => reject(new Error("Error cargando datos"));
-    document.head.appendChild(script);
-    setTimeout(() => reject(new Error("Timeout")), 10000);
-  });
-  if (!data.ok || !data.rows || data.rows.length < 2) return [];
-  const [headers, ...rows] = data.rows;
-  return rows.map(row => {
-    const obj = {};
-    headers.forEach((h, i) => obj[h] = row[i]);
-    return {
-      id: obj["ID"],
-      fecha: obj["Fecha"],
-      cliente: obj["Cliente"],
-      telefono: obj["Teléfono"],
-      patente: obj["Patente"],
-      marcaAuto: obj["Marca"],
-      modeloAuto: obj["Modelo"],
-      anio: obj["Año"],
-      kmActuales: obj["KM Actuales"],
-      kmProxService: obj["KM Próximo"],
-      proximaFecha: obj["Fecha Próximo Service"],
-      kilometrajeService: obj["Intervalo KM"],
-      marcaAceite: obj["Aceite Marca"],
-      nombreAceite: obj["Aceite Tipo"],
-      usaAditivo: obj["Usó Aditivo"] === "SÍ",
-      tipoAditivo: obj["Tipo Aditivo"],
-      filtros: obj["Filtros"] ? obj["Filtros"].split(", ").filter(Boolean) : [],
-      fluidos: obj["Fluidos"] ? obj["Fluidos"].split(", ").filter(Boolean) : [],
-      observaciones: obj["Observaciones"],
-      costo: obj["Costo"],
-    };
-  }).filter(s => s.cliente || s.patente);
+function lsGuardar(servicios) {
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(servicios));
+    return true;
+  } catch { return false; }
+}
+
+function lsExportar(servicios) {
+  const headers = ["ID","Fecha","Cliente","Teléfono","Patente","Marca","Modelo","Año","KM Actuales","KM Próximo","Próxima Fecha","Intervalo KM","Aceite Marca","Aceite Tipo","Usó Aditivo","Tipo Aditivo","Filtros","Fluidos","Observaciones","Costo"];
+  const rows = servicios.map(s => [
+    s.id, s.fecha, s.cliente, s.telefono, s.patente,
+    s.marcaAuto, s.modeloAuto, s.anio, s.kmActuales, s.kmProxService,
+    s.proximaFecha, s.kilometrajeService, s.marcaAceite, s.nombreAceite,
+    s.usaAditivo?"SÍ":"NO", s.tipoAditivo,
+    (s.filtros||[]).join(", "), (s.fluidos||[]).join(", "),
+    s.observaciones, s.costo
+  ]);
+  const csv = [headers, ...rows].map(r => r.map(v => `"${(v||"").toString().replace(/"/g,'""')}"`).join(",")).join("\n");
+  const blob = new Blob([csv], {type:"text/csv;charset=utf-8;"});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = `servicios_lubricentro_${new Date().toISOString().slice(0,10)}.csv`;
+  a.click();
+  URL.revokeObjectURL(url);
 }
 
 // ── Texto WhatsApp ────────────────────────────────────────────────
@@ -189,38 +176,25 @@ function setState(patch, rerender=true) {
   if(rerender) render();
 }
 
-// ── Cargar desde Sheets ───────────────────────────────────────────
-async function cargarServicios() {
+// ── Cargar desde localStorage ─────────────────────────────────────
+function cargarServicios() {
   setState({sync:"loading"});
-  try {
-    const data = await apiCargar();
-    setState({servicios: data, sync:"ok"});
-  } catch(e) {
-    setState({sync:"error"});
-  }
+  const data = lsCargar();
+  setState({servicios: data, sync:"ok"});
 }
 
-// ── Guardar en Sheets ─────────────────────────────────────────────
-async function guardarServicio(form) {
+// ── Guardar en localStorage ───────────────────────────────────────
+function guardarServicio(form) {
   setState({sync:"saving"});
-  try {
-    const servicio = {...form, id: Date.now()};
-    const res = await apiGuardar(servicio);
-    if(res.ok) {
-      setState(s => ({
-        servicios: [servicio, ...s.servicios],
-        form: emptyForm(),
-        view: "lista",
-        sync: "ok"
-      }));
-    } else {
-      setState({sync:"error"});
-      alert("Error al guardar. Verificá la conexión.");
-    }
-  } catch(e) {
-    setState({sync:"error"});
-    alert("Error de conexión con Google Sheets.");
-  }
+  const servicio = {...form, id: Date.now(), registradoEn: new Date().toISOString()};
+  const nuevos = [servicio, ...state.servicios];
+  const ok = lsGuardar(nuevos);
+  setState({
+    servicios: nuevos,
+    form: emptyForm(),
+    view: "lista",
+    sync: ok ? "ok" : "error"
+  });
 }
 
 // ── Badge sync ────────────────────────────────────────────────────
@@ -229,7 +203,7 @@ function buildSyncBadge() {
   const map = {
     loading: {txt:"⟳ CARGANDO...", bg:"#1e3a8a44", color:"#93c5fd", border:"#2563eb44"},
     saving:  {txt:"⟳ GUARDANDO...", bg:"#1e3a8a44", color:"#93c5fd", border:"#2563eb44"},
-    ok:      {txt:"☁️ GUARDADO EN SHEETS", bg:"#14532d44", color:"#4ade80", border:"#16a34a44"},
+    ok:      {txt:"✅ GUARDADO", bg:"#14532d44", color:"#4ade80", border:"#16a34a44"},
     error:   {txt:"⚠️ ERROR AL GUARDAR", bg:"#7f1d1d44", color:"#f87171", border:"#dc262644"},
   };
   const s = map[state.sync] || map.ok;
@@ -378,8 +352,8 @@ function buildLista() {
   // Botón recargar
   const reloadBtn = document.createElement("button");
   reloadBtn.style.cssText = C.btnS + "width:100%;margin-top:16px;";
-  reloadBtn.textContent = "🔄 RECARGAR DESDE GOOGLE SHEETS";
-  reloadBtn.onclick = () => cargarServicios();
+  reloadBtn.textContent = "📥 EXPORTAR CSV PARA GOOGLE SHEETS";
+  reloadBtn.onclick = () => lsExportar(state.servicios);
   main.appendChild(reloadBtn);
 
   wrap.appendChild(main);
@@ -754,8 +728,8 @@ function buildView() {
 }
 
 // ── Arrancar ──────────────────────────────────────────────────────
-render();
 cargarServicios();
+render();
 </script>
 </body>
 </html>
